@@ -1,0 +1,32 @@
+name: order-agent
+version: 0.1.0
+description: Agent obslugi klienta, status zamowien przez WhatsApp
+
+model:
+  provider: anthropic
+  name: REPLACE_WITH_MODEL_NAME
+  temperature: 0.2
+  max_tokens: 500
+
+limits:
+  max_agent_steps: 5
+  max_tool_calls_per_message: 3
+  max_message_length: 1000
+
+files:
+  system_prompt: prompts/system.md
+  fewshot: prompts/fewshot.md
+  tools:
+    - name: order_status
+      description: tools/order-status.description.md
+    - name: handoff_to_human
+      description: tools/handoff.description.md
+
+security:
+  canary: CANARY-REPLACE-WITH-RANDOM-STRING
+  forbid_prompt_disclosure: true
+
+aliases:
+  - dev
+  - staging
+  - prod
