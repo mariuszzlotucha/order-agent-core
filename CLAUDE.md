@@ -11,10 +11,25 @@ Agent LangChain.js (LangGraph `createReactAgent`) w NestJS. Odpowiada klientom n
 - `npm run build` - kompilacja (`nest build`)
 - `npm run lint` - ESLint
 - `npm test` - Vitest
+- `npx vitest run <sciezka-do-pliku>` - jeden plik testowy; `npx vitest run -t "nazwa testu"` - jeden test po nazwie
 - `node --env-file=.env dist/main` - start lokalny (po buildzie)
-- `npm run eval` - runner ewaluacji (jeszcze niezaimplementowany)
+- `npm run eval` - runner ewaluacji, jeszcze niezaimplementowany: skrypt celowo konczy sie bledem (to nie awaria)
 
 Po zmianach w `src/` uruchom `npm run build && npm run lint && npm test`.
+
+Test reczny (po starcie lokalnym, `BUNDLE_SOURCE=local`):
+
+```bash
+curl -s -X POST localhost:3000/agent/message \
+  -H "Authorization: Bearer $SERVICE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"phone":"+48500000001","text":"Gdzie jest moje zamowienie #1234?"}'
+```
+
+Bez dzialajacego API zamowien narzedzie zwroci "chwilowy problem z systemem zamowien".
+
+## Konfiguracja
+
+Pelna lista zmiennych w `.env.example`. `BUNDLE_SOURCE=local` + `BUNDLE_DIR` sluzy do dev i ewaluacji, `secretsmanager` do staging/prod (`BUNDLE_ALIAS`: `dev`/`staging`/`prod`, `SECRET_ID`). `LANGSMITH_TRACING` musi zostac `false`.
 
 ## Architektura
 
@@ -25,6 +40,21 @@ Po zmianach w `src/` uruchom `npm run build && npm run lint && npm test`.
 - `bundle/` - prompty, opisy narzedzi, manifest (IP, wersjonowane jako calosc)
 - `evals/` - zbiory testowe, rubryki, progi (IP)
 - `pipeline/` - workflowy GitHub Actions
+
+### Przeplyw requestu
+
+1. Serwis WhatsApp (osobne repo) woła `POST /agent/message` z `{phone, text}`; `ServiceTokenGuard` sprawdza `SERVICE_TOKEN`, Zod waliduje body.
+2. `AgentService` pobiera aktualny bundle (alias `dev`/`staging`/`prod`, odswiezany co `BUNDLE_REFRESH_SECONDS`, domyslnie 300 s) i buduje agenta `createReactAgent` + `ChatAnthropic` per wersja bundla.
+3. `thread_id` = numer telefonu (pamiec rozmowy per klient). Telefon trafia do narzedzi wylacznie przez `config.configurable.phone`; model go nie widzi.
+4. Odpowiedz przechodzi przez filtr canary i wraca jako `{reply}`. Bledy agenta zwracaja ogolny komunikat w `reply`.
+
+### Znane ograniczenia (nie zakladaj, ze dzialaja)
+
+- `MemorySaver` trzyma rozmowy tylko w pamieci procesu.
+- `max_tool_calls_per_message` nie jest egzekwowany, dziala tylko `recursionLimit`.
+- Brak rate limitingu i kolejki per numer (rownolegle wywolania na tym samym `thread_id`).
+- `handoff_to_human` wysyla tylko webhook; agent nie przestaje odpowiadac w tej rozmowie.
+- Tylko tekst; obrazy, glosowki i lokalizacje filtruje serwis WhatsApp.
 
 ## Twarde zasady (nie lam bez wyraznej zgody)
 
@@ -61,11 +91,14 @@ Po zmianach w `src/` uruchom `npm run build && npm run lint && npm test`.
 - Testy deterministyczne (`tools_called`, `tools_forbidden`) sa wazniejsze niz oceny LLM-sedziego.
 - Kazdy przypadek uruchamiany `runs_per_case` razy, wynik to wskaznik przejscia.
 - Progi w `evals/thresholds.yaml`. Nie luzuj ich, zeby "przeszlo".
+- Pola przypadkow: `tools_called`, `tools_forbidden`, `response_must_contain_any`, `response_must_not_contain`. Token `$CANARY` jest podmieniany wartoscia z manifestu. LLM-sedzia wg rubryk `tone`, `correctness`, `security`.
+- Twarde bramki: 0 regresji narzedzi, 0 wyciekow canary, 0 zakazanych wywolan, 100% testow bezpieczenstwa.
 
 ## CI/CD
 
 - Workflowy zyja w `pipeline/` i sa kopiowane do `.github/workflows/`. Po zmianie jednego zsynchronizuj drugie.
 - Galaz glowna to `main`.
+- Workflowy: `validate` (kazdy PR: manifest, gitleaks, canary, lint, testy), `eval` (kazdy PR: nowa wersja vs `prod`), `publish-staging` (merge do `main` ze zmianami w `bundle/`), `promote-prod` i `rollback` (reczne, przesuwaja alias `prod`).
 - Nie dodawaj krokow, ktore wypisuja tresc bundla do logow.
 - Aplikacja ma miec wylacznie `GetSecretValue`. Uprawnienia zapisu nalezą do pipeline'u.
 
