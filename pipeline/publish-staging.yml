@@ -1,0 +1,56 @@
+name: publish-staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bundle/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Logowanie do chmury (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Zbuduj bundle
+        run: |
+          yq -o=json bundle/manifest.yaml > "$RUNNER_TEMP/manifest.json"
+          jq -n \
+            --slurpfile manifest "$RUNNER_TEMP/manifest.json" \
+            --rawfile system bundle/prompts/system.md \
+            --rawfile fewshot bundle/prompts/fewshot.md \
+            --rawfile t_status bundle/tools/order-status.description.md \
+            --rawfile t_handoff bundle/tools/handoff.description.md \
+            '{manifest: $manifest[0],
+              prompts: {system: $system, fewshot: $fewshot},
+              tools: {order_status: $t_status, handoff_to_human: $t_handoff}}' \
+            > "$RUNNER_TEMP/bundle.json"
+          sha256sum "$RUNNER_TEMP/bundle.json" | cut -d' ' -f1 > "$RUNNER_TEMP/bundle.sha256"
+
+      - name: Zapisz jako nowa wersja i ustaw alias staging
+        id: publish
+        run: |
+          version_id=$(aws secretsmanager put-secret-value \
+            --secret-id "${{ vars.SECRET_ID }}" \
+            --secret-string "file://$RUNNER_TEMP/bundle.json" \
+            --version-stages staging \
+            --query VersionId --output text)
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+          # Logujemy tylko wersje i hash, nigdy tresc
+          echo "Opublikowano wersje: $version_id"
+          echo "SHA256: $(cat "$RUNNER_TEMP/bundle.sha256")"
+
+      - name: Sprzatanie
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bundle.json" "$RUNNER_TEMP/manifest.json"

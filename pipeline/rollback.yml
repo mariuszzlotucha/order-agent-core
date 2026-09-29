@@ -1,0 +1,54 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: "VersionId do przywrocenia (puste = alias prod-previous)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: production-rollback
+    steps:
+      - name: Logowanie do chmury (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Ustal wersje docelowa i przesun alias prod
+        run: |
+          secret="${{ vars.SECRET_ID }}"
+          map=$(aws secretsmanager describe-secret --secret-id "$secret" \
+            --query "VersionIdsToStages" --output json)
+
+          target="${{ inputs.version_id }}"
+          if [ -z "$target" ]; then
+            target=$(echo "$map" | jq -r 'to_entries[] | select(.value | index("prod-previous")) | .key')
+          fi
+          [ -n "$target" ] && [ "$target" != "null" ] || { echo "Brak wersji docelowej"; exit 1; }
+
+          current=$(echo "$map" | jq -r 'to_entries[] | select(.value | index("prod")) | .key')
+
+          aws secretsmanager update-secret-version-stage \
+            --secret-id "$secret" --version-stage prod \
+            --move-to-version-id "$target" \
+            ${current:+--remove-from-version-id "$current"} > /dev/null
+
+          echo "AUDYT: rollback z=$current na=$target przez=${{ github.actor }} run=${{ github.run_id }} czas=$(date -u +%FT%TZ)"
+
+      - name: Powiadomienie zespolu
+        if: always()
+        env:
+          WEBHOOK_URL: ${{ secrets.TEAM_WEBHOOK_URL }}
+        run: |
+          [ -n "$WEBHOOK_URL" ] && curl -s -X POST -H 'Content-Type: application/json' \
+            -d "{\"text\":\"Rollback promptu prod wykonany przez ${{ github.actor }} (run ${{ github.run_id }})\"}" \
+            "$WEBHOOK_URL" || true

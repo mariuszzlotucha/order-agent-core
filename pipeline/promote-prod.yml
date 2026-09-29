@@ -1,0 +1,59 @@
+name: promote-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: "VersionId z secret managera (musi miec alias staging)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    # Chroniony environment z wymaganym zatwierdzeniem wlasciciela
+    environment: production
+    steps:
+      - name: Logowanie do chmury (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Sprawdz, czy wersja byla na stagingu
+        run: |
+          stages=$(aws secretsmanager describe-secret \
+            --secret-id "${{ vars.SECRET_ID }}" \
+            --query "VersionIdsToStages.\"${{ inputs.version_id }}\"" --output json)
+          echo "$stages" | jq -e 'index("staging")' > /dev/null || {
+            echo "Wersja nie ma aliasu staging - promocja odrzucona"; exit 1;
+          }
+
+      - name: Przesun alias prod (poprzednia wersja prod -> prod-previous)
+        run: |
+          secret="${{ vars.SECRET_ID }}"
+          new="${{ inputs.version_id }}"
+          old=$(aws secretsmanager describe-secret --secret-id "$secret" \
+            --query "VersionIdsToStages" --output json \
+            | jq -r 'to_entries[] | select(.value | index("prod")) | .key')
+
+          if [ -n "$old" ] && [ "$old" != "null" ]; then
+            aws secretsmanager update-secret-version-stage \
+              --secret-id "$secret" --version-stage prod-previous \
+              --move-to-version-id "$old" > /dev/null
+            aws secretsmanager update-secret-version-stage \
+              --secret-id "$secret" --version-stage prod \
+              --move-to-version-id "$new" --remove-from-version-id "$old" > /dev/null
+          else
+            aws secretsmanager update-secret-version-stage \
+              --secret-id "$secret" --version-stage prod \
+              --move-to-version-id "$new" > /dev/null
+          fi
+
+      - name: Wpis audytowy
+        run: |
+          echo "AUDYT: promote-prod wersja=${{ inputs.version_id }} przez=${{ github.actor }} run=${{ github.run_id }} czas=$(date -u +%FT%TZ)"

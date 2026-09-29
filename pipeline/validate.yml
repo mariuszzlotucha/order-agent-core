@@ -1,0 +1,56 @@
+name: validate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skan sekretow (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wymagane pola w manifest.yaml
+        run: |
+          for f in name version model.name limits.max_agent_steps security.canary; do
+            v=$(yq ".$f" bundle/manifest.yaml)
+            if [ -z "$v" ] || [ "$v" = "null" ]; then
+              echo "Brak pola: $f"; exit 1
+            fi
+          done
+
+      - name: Wersja podbita wzgledem main
+        run: |
+          new=$(yq '.version' bundle/manifest.yaml)
+          old=$(git show origin/main:bundle/manifest.yaml | yq '.version')
+          if [ "$new" = "$old" ]; then
+            echo "Wersja w manifest.yaml nie zostala podbita"; exit 1
+          fi
+
+      - name: Canary obecny w prompcie i nie jest placeholderem
+        run: |
+          canary=$(yq '.security.canary' bundle/manifest.yaml)
+          case "$canary" in *REPLACE*) echo "Canary nie ustawiony"; exit 1;; esac
+          grep -q "$canary" bundle/prompts/system.md || { echo "Canary brak w system.md"; exit 1; }
+
+      - name: Model nie jest placeholderem
+        run: |
+          m=$(yq '.model.name' bundle/manifest.yaml)
+          case "$m" in *REPLACE*) echo "Nazwa modelu nie ustawiona"; exit 1;; esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
