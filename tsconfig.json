@@ -1,1 +1,1 @@
-{"compilerOptions":{"module":"commonjs","target":"ES2022","outDir":"dist","strict":true,"esModuleInterop":true,"experimentalDecorators":true,"emitDecoratorMetadata":true,"skipLibCheck":true},"include":["src"]}
+{"compilerOptions":{"module":"node16","moduleResolution":"node16","target":"ES2022","outDir":"dist","strict":true,"esModuleInterop":true,"experimentalDecorators":true,"emitDecoratorMetadata":true,"skipLibCheck":true},"include":["src"]}
