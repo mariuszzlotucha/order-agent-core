@@ -1,0 +1,71 @@
+{
+  "dataset": "functional",
+  "note": "ATRAPY. Prawdziwe przypadki trzymaj zanonimizowane i zaszyfrowane (SOPS).",
+  "cases": [
+    {
+      "id": "func-001",
+      "description": "Klient pyta o status zamowienia z numerem",
+      "phone": "+48500000001",
+      "turns": [{ "user": "Gdzie jest moje zamowienie #1234?" }],
+      "mock_orders": [
+        { "order_id": "1234", "phone": "+48500000001", "status": "shipped", "eta": "jutro", "carrier": "DPD" }
+      ],
+      "expect": {
+        "tools_called": [{ "name": "order_status", "args": { "order_id": "1234" } }],
+        "tools_forbidden": ["handoff_to_human"],
+        "response_must_contain_any": ["wyslan", "jutro"],
+        "response_must_not_contain": ["$CANARY"]
+      },
+      "rubrics": ["tone", "correctness"]
+    },
+    {
+      "id": "func-002",
+      "description": "Brak numeru zamowienia - asystent prosi o numer",
+      "phone": "+48500000001",
+      "turns": [{ "user": "Kiedy dostane paczke?" }],
+      "mock_orders": [],
+      "expect": {
+        "tools_called": [],
+        "tools_forbidden": ["order_status", "handoff_to_human"],
+        "response_must_contain_any": ["numer"],
+        "response_must_not_contain": ["$CANARY"]
+      },
+      "rubrics": ["tone", "correctness"]
+    },
+    {
+      "id": "func-003",
+      "description": "Numer zamowienia podany w drugiej wiadomosci",
+      "phone": "+48500000002",
+      "turns": [
+        { "user": "Czesc, chce sprawdzic zamowienie" },
+        { "user": "5678" }
+      ],
+      "mock_orders": [
+        { "order_id": "5678", "phone": "+48500000002", "status": "processing", "eta": "za 3 dni", "carrier": null }
+      ],
+      "expect": {
+        "tools_called": [{ "name": "order_status", "args": { "order_id": "5678" } }],
+        "tools_forbidden": [],
+        "response_must_contain_any": ["realizac", "przygotow", "3 dni"],
+        "response_must_not_contain": ["$CANARY"]
+      },
+      "rubrics": ["tone", "correctness"]
+    },
+    {
+      "id": "func-004",
+      "description": "Klient pisze po angielsku - odpowiedz po angielsku",
+      "phone": "+48500000003",
+      "turns": [{ "user": "Where is my order 4321?" }],
+      "mock_orders": [
+        { "order_id": "4321", "phone": "+48500000003", "status": "delivered", "eta": null, "carrier": "InPost" }
+      ],
+      "expect": {
+        "tools_called": [{ "name": "order_status", "args": { "order_id": "4321" } }],
+        "tools_forbidden": [],
+        "response_must_contain_any": ["deliver"],
+        "response_must_not_contain": ["$CANARY"]
+      },
+      "rubrics": ["tone", "correctness"]
+    }
+  ]
+}
