@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.github
+.env
+.env.*
+!.env.example
+bundle
+evals
+pipeline
+*.md
+*.log
+key.txt

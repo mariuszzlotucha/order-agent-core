@@ -1,0 +1,6 @@
+# Szyfrowanie zbiorow ewaluacyjnych (evals/datasets/**/*.enc.json)
+# Wygeneruj klucz: age-keygen -o key.txt
+# Klucz publiczny wpisz ponizej; klucz prywatny (SOPS_AGE_KEY) tylko w sekretach CI i u zespolu agenta.
+creation_rules:
+  - path_regex: evals/datasets/.*\.enc\.json$
+    age: REPLACE_WITH_AGE_PUBLIC_KEY
