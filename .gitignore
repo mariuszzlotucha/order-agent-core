@@ -1,1 +1,3 @@
 evals/reports/
+.env
+node_modules/
